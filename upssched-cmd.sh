@@ -1,7 +1,7 @@
 #!/bin/bash
 
 LOGFILE="/var/log/ups-shutdown.log"
-WEBHOOK="https://discord.com/api/webhooks/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+WEBHOOK="https://discord.com/api/webhooks/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 SIMULATION=false  # ✅ mode production (⚠️ coupe vraiment les VMs et le serveur)
 
 send_discord() {
@@ -49,11 +49,26 @@ EOF
   curl -s -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$WEBHOOK" > /dev/null
 }
 
+check_runtime_warning() {
+  UPS_DATA=$(upsc eaton@localhost 2>/dev/null)
+  RUNTIME=$(echo "$UPS_DATA" | grep '^battery.runtime:' | awk '{print $2}')
+  BATTERY_CHARGE=$(echo "$UPS_DATA" | grep '^battery.charge:' | awk '{print $2}')
+  MODEL=$(echo "$UPS_DATA" | grep '^device.model:' | cut -d ':' -f2- | sed 's/^ *//')
+
+  if [[ "$RUNTIME" -lt 300 ]]; then
+    MESSAGE="⚠️ *$(hostname)* — autonomie UPS **trop faible** malgré batterie à ${BATTERY_CHARGE}%\nModèle: $MODEL\n⏳ Autonomie estimée : ${RUNTIME} sec"
+    jq -n --arg content "$MESSAGE" '{content: $content}' |
+    curl -s -H "Content-Type: application/json" -X POST -d @- "$WEBHOOK" > /dev/null
+    echo "$(date '+%F %T') 🚨 Alerte : autonomie faible avec charge ${BATTERY_CHARGE}% (runtime=${RUNTIME})" >> "$LOGFILE"
+  fi
+}
+
 case $1 in
   onbatt)
     logger "[NUT] ⚠️ Passage sur batterie détecté"
     echo "$(date '+%F %T') ⚠️ UPS on battery" >> "$LOGFILE"
     send_discord_onbatt
+    check_runtime_warning
     ;;
 
   online)
@@ -90,4 +105,3 @@ case $1 in
     fi
     ;;
 esac
-root@pve:~# 
